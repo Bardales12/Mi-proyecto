@@ -76,3 +76,4 @@ wheel==0.44.0
 wrapt==1.16.0
 tensorflow
 tensorflow
+gunicorn
