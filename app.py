@@ -4,7 +4,7 @@ import os
 
 app = Flask(__name__)
 
-# 📂 Definir rutas relativas (Render no usa rutas absolutas como "D:/...")
+# 📂 Definir rutas relativas (Render no usa rutas absolutas)
 UPLOADS_DIR = os.path.join(os.getcwd(), "uploads")
 EXCEL_FILE = os.path.join(UPLOADS_DIR, "LISTA_ORIGINAL_DEUDA.xlsx")
 BACKUP_FILE = os.path.join(UPLOADS_DIR, "LISTA_ORIGINAL_DEUDA_BACKUP.xlsx")
@@ -20,7 +20,14 @@ def verificar_archivo(ruta):
 # 📖 Leer datos del archivo Excel
 def leer_datos(ruta=BACKUP_FILE):
     if verificar_archivo(ruta):
-        return pd.read_excel(ruta, header=3, engine='openpyxl')
+        try:
+            df = pd.read_excel(ruta, header=3, engine='openpyxl')
+            df.columns = df.columns.str.strip()  # Eliminar espacios en los nombres de las columnas
+            print("📌 Columnas disponibles en el DataFrame:", df.columns.tolist())
+            return df
+        except Exception as e:
+            print(f"⚠️ Error al leer el archivo Excel: {e}")
+            return pd.DataFrame()
     return pd.DataFrame()  # Retorna un DataFrame vacío si no encuentra el archivo
 
 # 💾 Guardar datos en el archivo Excel
@@ -38,8 +45,19 @@ def guardar_datos(df, ruta=BACKUP_FILE):
 def buscar_estudiantes_por_nombre(nombre):
     df = leer_datos()
     if df.empty:
+        print("⚠️ El archivo Excel está vacío.")
         return []
+
+    print(f"🔍 Buscando el nombre: {nombre}")
+
+    # Filtrar estudiantes cuyo nombre contenga el texto ingresado
     resultados = df[df['APELLIDOS Y NOMBRES'].astype(str).str.contains(nombre, case=False, na=False)]
+
+    if resultados.empty:
+        print(f"⚠️ No se encontraron resultados para '{nombre}'")
+    else:
+        print(f"✅ {len(resultados)} resultados encontrados.")
+
     return resultados.to_dict(orient='records') if not resultados.empty else []
 
 # ✅ Actualizar la deuda del estudiante a 0
@@ -47,6 +65,7 @@ def actualizar_deuda(nombre):
     df = leer_datos()
     if df.empty:
         return
+
     mask = df['APELLIDOS Y NOMBRES'].astype(str).str.contains(nombre, case=False, na=False)
     if mask.any():
         df.loc[mask, ['I', 'II', 'III', 'IV', 'DEUDA TOT']] = 0
@@ -61,11 +80,14 @@ def restaurar_deuda(nombre):
     df_original = leer_datos(EXCEL_FILE)
     if df_backup.empty or df_original.empty:
         return
+
     mask = df_backup['APELLIDOS Y NOMBRES'].astype(str).str.contains(nombre, case=False, na=False)
     if mask.any():
         columnas_deuda = ['I', 'II', 'III', 'IV', 'DEUDA TOT']
         for columna in columnas_deuda:
-            df_backup.loc[mask, columna] = df_original.loc[df_original['APELLIDOS Y NOMBRES'] == nombre, columna].values[0]
+            valores_originales = df_original.loc[df_original['APELLIDOS Y NOMBRES'] == nombre, columna].values
+            if valores_originales.size > 0:
+                df_backup.loc[mask, columna] = valores_originales[0]
         guardar_datos(df_backup)
         print(f"🔄 Deuda de '{nombre}' restaurada.")
     else:
@@ -76,19 +98,24 @@ def restaurar_deuda(nombre):
 def index():
     verificar_archivo(BACKUP_FILE)  # Verifica si el backup existe
     estudiantes = []
+
     if request.method == 'POST':
         nombre = request.form['busqueda'].strip()
         accion = request.form.get('accion')
+
         if accion == 'pago_si':
             actualizar_deuda(nombre)
         elif accion == 'pago_no':
             restaurar_deuda(nombre)
+
         estudiantes = buscar_estudiantes_por_nombre(nombre)
+
     return render_template('index.html', estudiantes=estudiantes)
 
 # 🚀 Iniciar el servidor en el puerto 10000
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))  # Permite configurar el puerto en Render
     app.run(host="0.0.0.0", port=port, debug=True)
+
 
 
